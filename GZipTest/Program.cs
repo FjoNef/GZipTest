@@ -4,7 +4,7 @@ namespace GZipTest
 {
     class Program
     {
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
             try
             {
@@ -13,7 +13,7 @@ namespace GZipTest
                     Console.WriteLine("Please, use the following parameters: GZipTest.exe compress/decompress input_file_name [output_file_name]");
                     Console.WriteLine("Press <Enter> to exit");
                     Console.ReadLine();
-                    return;
+                    return 0;
                 }
 
                 string inputFileName = args[1];
@@ -37,10 +37,12 @@ namespace GZipTest
             catch (Exception ex)
             {
                 Console.WriteLine("\nError: {0}", ex.ToString());
+                return 1;
             }
 
             Console.WriteLine("Press <Enter> to exit");
             Console.ReadLine();
+            return 0;
         }
     }
 }
