@@ -9,7 +9,7 @@ namespace GZipTest
     static class GZipper
     {
         private static readonly Int32 BUFF_SIZE = 1024 * 1024;
-        private static readonly Int32 PROC_COUNT = Environment.ProcessorCount;
+        private static readonly Int32 PROC_COUNT = /*Environment.ProcessorCount*/1;
         private static readonly Object StreamLock = new Object();
         private static readonly Object QueueLock = new Object();
 
@@ -18,6 +18,7 @@ namespace GZipTest
         private static Int64 _currentPosition;
         private static Boolean _isSearchCompleted;
         private static Int64 _blocks;
+        private static Int64 _headers;
         private static FileStream _outputStream;
         private static Queue<Int64> _headerPositions = new Queue<long>();
 
@@ -164,11 +165,12 @@ namespace GZipTest
             FileInfo inputFile = (FileInfo)inputFileInfo;
             Byte[] buff;
 
+            using (MemoryStream memStream = new MemoryStream())
             using (FileStream localInputStream = inputFile.OpenRead())
             {
                 Int64 currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
 
-                while (currentBlock <= _blocks)
+                while (currentBlock < _blocks)
                 {
                     Int64 fragmentStart = BUFF_SIZE * currentBlock;
 
@@ -191,42 +193,27 @@ namespace GZipTest
                         {
                             Int64 previousPosition = localInputStream.Position;
                             localInputStream.Position -= 3;
-
+                            _headers++;
                             try
                             {
-                                using (MemoryStream memStream = new MemoryStream())
+
+                                using (GZipStream gzStream = new GZipStream(localInputStream,
+                                            CompressionMode.Decompress, true))
                                 {
-                                    using (GZipStream gzStream = new GZipStream(localInputStream,
-                                                CompressionMode.Decompress, true))
-                                    {
-                                        gzStream.CopyTo(memStream);
-                                    }
-                                    buff = memStream.ToArray();
+                                    gzStream.CopyTo(memStream);
                                 }
-
-                                Monitor.Enter(StreamLock);
-                                while (currentBlock != _currentBlockWrited)
-                                {
-                                    Monitor.Wait(StreamLock);
-                                }
-
-                                _outputStream.Write(buff, 0, buff.Length);
-
-                                Monitor.PulseAll(StreamLock);
-
-                                Monitor.Exit(StreamLock);
-
-                                if (localInputStream.Position - 8192 >= fragmentStart + BUFF_SIZE + 2)
-                                {
-                                    Interlocked.Exchange(ref _currentPosition, localInputStream.Position - 8192);
-                                    break;
-                                }
-
-                                //The header of the next member may be in a previously inflated block (8Kb)
-                                if (localInputStream.Position > previousPosition + 8192)
-                                    localInputStream.Position -= 8192;
 
                                 Console.Write(".");
+
+                                //if (localInputStream.Position - 8192 >= fragmentStart + BUFF_SIZE + 2)
+                                //{
+                                //    Interlocked.Exchange(ref _currentPosition, localInputStream.Position - 8192);
+                                //    break;
+                                //}
+
+                                //The header of the next member may be in a previously inflated block (8Kb)
+                                //if (localInputStream.Position > previousPosition -3 + 8192)
+                                    localInputStream.Position -= 8191;                                
                             }
                             catch (InvalidDataException)
                             {
@@ -235,28 +222,35 @@ namespace GZipTest
                         }
                         else
                         {
-                            currentPosition = Interlocked.Read(ref _currentPosition);
-                            if (currentPosition > localInputStream.Position)
-                                localInputStream.Position = currentPosition;
-                            else
+                            //currentPosition = Interlocked.Read(ref _currentPosition);
+                            //if (currentPosition > localInputStream.Position)
+                            //    localInputStream.Position = currentPosition;
+                            //else
                                 localInputStream.Position -= 2;
                         }
                     }
 
-                    Monitor.Enter(StreamLock);
+                    Interlocked.Exchange(ref _currentPosition, localInputStream.Position);
 
-                    while (currentBlock != _currentBlockWrited)
-                    {
-                        Monitor.Wait(StreamLock);
-                    }
+                    //Monitor.Enter(StreamLock);
+
+                    //while (currentBlock != _currentBlockWrited)
+                    //{
+                    //    Monitor.Wait(StreamLock);
+                    //}
+
+                    buff = memStream.ToArray();
+                    _outputStream.Write(buff, 0, buff.Length);
                     _currentBlockWrited++;
 
-                    Monitor.PulseAll(StreamLock);
-                    Monitor.Exit(StreamLock);
+                    //Monitor.PulseAll(StreamLock);
+                    //Monitor.Exit(StreamLock);
 
+                    memStream.SetLength(0);
                     currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
                 }
             }
+            Console.WriteLine(_headers);
         }
 
         //private static void DecompressBlock(Object inputFileInfo)
