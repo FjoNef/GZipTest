@@ -21,14 +21,13 @@ namespace GZipTest
                 if (args.Length > 2)
                     outputFileName = args[2];
 
-                GZipper gzipper = new GZipper();
                 switch (args[0])
                 {
                     case "compress":
-                        gzipper.Compress(inputFileName, outputFileName);
+                        GZipper.Compress(inputFileName, outputFileName);
                         break;
                     case "decompress":
-                        gzipper.Decompress(inputFileName, outputFileName);
+                        GZipper.Decompress(inputFileName, outputFileName);
                         break;
                     default:
                         Console.WriteLine("Please, use the following parameters: GZipTest.exe compress/decompress input_file_name [output_file_name]");
@@ -38,6 +37,7 @@ namespace GZipTest
             catch (Exception ex)
             {
                 Console.WriteLine("\nError: {0}", ex.ToString());
+                Console.WriteLine("Press <Enter> to exit");
                 Console.ReadLine();
                 return 1;
             }

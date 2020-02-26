@@ -5,7 +5,7 @@ using System.Threading;
 
 namespace GZipTest
 {
-    public class GZipper
+    public static class GZipper
     {
         private static readonly Int32 BUFF_SIZE = 1024 * 1024;
         private static readonly Int32 DEFLATE_BUFF_SIZE = 8 * 1024;
@@ -33,14 +33,7 @@ namespace GZipTest
             0
         };
 
-        private readonly Object StreamLock = new Object();
-
-        private Int64 _currentBlockReaded = 0;
-        private Int64 _currentBlockWrited = 0;
-        private Int64 _blocks = 0;
-        private FileStream _outputStream = null;
-
-        public void Compress(String inputFileName, String outputFileName = null)
+        public static void Compress(String inputFileName, String outputFileName = null)
         {
             try
             {
@@ -48,23 +41,20 @@ namespace GZipTest
 
                 FileInfo inputFile = new FileInfo(inputFileName);
 
-                _currentBlockWrited = 0;
-                _currentBlockReaded = 0;
-
-                using (_outputStream = new FileStream((outputFileName ?? inputFile.FullName) + ".gz", FileMode.Create, FileAccess.Write))
+                using (GZipperStreamSyncronizer streamSyncronizer = new GZipperStreamSyncronizer(inputFile, outputFileName ?? (inputFileName + ".gz")))
                 {
-                    _blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
+                    streamSyncronizer.Blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
-                    if (_blocks > 0)
+                    if (streamSyncronizer.Blocks > 0)
                     {
-                        Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, _blocks);
+                        Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, streamSyncronizer.Blocks);
 
                         Thread[] threads = new Thread[threadsNumber];
 
                         for (Int64 i = 0; i < threadsNumber; i++)
                         {
                             threads[i] = new Thread(CompressBlock);
-                            threads[i].Start(inputFile);
+                            threads[i].Start(streamSyncronizer);
                         }
 
                         foreach (Thread thread in threads)
@@ -74,7 +64,7 @@ namespace GZipTest
                     }
                     else
                     {
-                        CompressEmptyFile(inputFile);
+                        CompressEmptyFile(streamSyncronizer);
                     }
                 }
                 Console.WriteLine("\nCompleted");
@@ -85,13 +75,13 @@ namespace GZipTest
             }
         }
 
-        private void CompressEmptyFile(FileInfo inputFile)
+        private static void CompressEmptyFile(GZipperStreamSyncronizer streamSyncronizer)
         {
-            _outputStream.Write(_headerBytes, 0, _headerBytes.Length);
-            _outputStream.Write(new byte[8], 0, 8);
+            streamSyncronizer.WriteToFile(_headerBytes, 0, _headerBytes.Length);
+            streamSyncronizer.WriteToFile(new byte[8], 0, 8);
         }
 
-        public void Decompress(String inputFileName, String outputFileName = null)
+        public static void Decompress(String inputFileName, String outputFileName = null)
         {
             try
             {
@@ -101,23 +91,18 @@ namespace GZipTest
                 {
                     Console.Write("Decompressing...   0%");
 
-                    _currentBlockWrited = 0;
-                    _currentBlockReaded = 0;
-
-                    using (_outputStream = File.Create((outputFileName ?? inputFile.FullName.Replace(".gz", ""))))
+                    using (GZipperStreamSyncronizer streamSyncronizer = new GZipperStreamSyncronizer(inputFile, (outputFileName ?? inputFile.FullName.Replace(".gz", ""))))
                     {
-                        _blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
+                        streamSyncronizer.Blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
-                        _blocks = _blocks > 0 ? _blocks : 1;
-
-                        Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, _blocks);
+                        Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, streamSyncronizer.Blocks);
 
                         Thread[] threads = new Thread[threadsNumber];
 
                         for (Int64 i = 0; i < threadsNumber; i++)
                         {
                             threads[i] = new Thread(DecompressBlock);
-                            threads[i].Start(inputFile);
+                            threads[i].Start(streamSyncronizer);
                         }
 
                         foreach (Thread thread in threads)
@@ -138,19 +123,19 @@ namespace GZipTest
             }
         }
 
-        private void CompressBlock(Object inputFileInfo)
+        private static void CompressBlock(Object streamSyncronizer)
         {
             Int32 bytesReaded;
             Byte[] decompressedBuff = new Byte[BUFF_SIZE];
 
-            FileInfo inputFile = (FileInfo)inputFileInfo;
+            GZipperStreamSyncronizer _streamSyncronizer = (GZipperStreamSyncronizer)streamSyncronizer;
 
             using (MemoryStream memStream = new MemoryStream())
-            using (FileStream localInputStream = new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, DEFLATE_BUFF_SIZE))
+            using (FileStream localInputStream = new FileStream(_streamSyncronizer.InputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, DEFLATE_BUFF_SIZE))
             {
-                Int64 currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
+                Int64 currentBlock = _streamSyncronizer.CurrentBlockReaded;
 
-                while (currentBlock < _blocks)
+                while (currentBlock < _streamSyncronizer.Blocks)
                 {
                     Int64 fragmentStart = BUFF_SIZE * currentBlock;
 
@@ -163,24 +148,24 @@ namespace GZipTest
                         gzStream.Write(decompressedBuff, 0, bytesReaded);
                     }
 
-                    WriteToFile(memStream, currentBlock, true);
+                    _streamSyncronizer.WriteBlockToFile(memStream, currentBlock, true);
 
-                    currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
+                    currentBlock = _streamSyncronizer.CurrentBlockReaded;
                 }
             }
         }
 
-        private void DecompressBlock(Object inputFileInfo)
+        private static void DecompressBlock(Object streamSyncronizer)
         {
-            FileInfo inputFile = (FileInfo)inputFileInfo;
+            GZipperStreamSyncronizer _streamSyncronizer = (GZipperStreamSyncronizer)streamSyncronizer;
             Byte[] compressedBuffer = new Byte[BUFF_SIZE + 2];
 
             using (MemoryStream memStream = new MemoryStream())
-            using (FileStream localInputStream = new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, DEFLATE_BUFF_SIZE))
+            using (FileStream localInputStream = new FileStream(_streamSyncronizer.InputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, DEFLATE_BUFF_SIZE))
             {
-                Int64 currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
+                Int64 currentBlock = _streamSyncronizer.CurrentBlockReaded;
 
-                while (currentBlock < _blocks)
+                while (currentBlock < _streamSyncronizer.Blocks)
                 {
                     Int64 fragmentStart = BUFF_SIZE * currentBlock;
 
@@ -199,14 +184,14 @@ namespace GZipTest
                             {
                                 using (GZipStream gzStream = new GZipStream(localInputStream,
                                             CompressionMode.Decompress, true))
-                                {                                    
-                                    byte[] buffer = new byte[DEFLATE_BUFF_SIZE*10];
+                                {
+                                    byte[] buffer = new byte[DEFLATE_BUFF_SIZE * 10];
                                     int read;
                                     while ((read = gzStream.Read(buffer, 0, buffer.Length)) != 0)
                                     {
                                         memStream.Write(buffer, 0, read);
                                         if (memStream.Length > BUFF_SIZE * 10)
-                                            WriteToFile(memStream, currentBlock, false);
+                                            _streamSyncronizer.WriteBlockToFile(memStream, currentBlock, false);
                                     }
                                 }
 
@@ -227,43 +212,10 @@ namespace GZipTest
                         }
                     }
 
-                    WriteToFile(memStream, currentBlock, true);
-                    currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
+                    _streamSyncronizer.WriteBlockToFile(memStream, currentBlock, true);
+                    currentBlock = _streamSyncronizer.CurrentBlockReaded;
                 }
             }
-        }
-
-        private void WriteToFile(MemoryStream memStream, Int64 currentBlock, Boolean isLastBlock)
-        {
-            Byte[] decompressedBuff = memStream.ToArray();
-
-            Monitor.Enter(StreamLock);
-
-            while (currentBlock != _currentBlockWrited)
-            {
-                Monitor.Wait(StreamLock);
-            }
-
-            _outputStream.Write(decompressedBuff, 0, decompressedBuff.Length);
-
-            if (isLastBlock)
-            {
-                _currentBlockWrited++;
-
-                UpdateProgress();
-            }
-
-            Monitor.PulseAll(StreamLock);
-            Monitor.Exit(StreamLock);
-
-            memStream.SetLength(0);
-        }
-
-        private void UpdateProgress()
-        {
-            Double percent = (Double)_currentBlockWrited / (Double)_blocks;
-            Console.CursorLeft -= 4;
-            Console.Write($"{percent,4:P0}");
         }
     }
 }
