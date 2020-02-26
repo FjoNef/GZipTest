@@ -6,21 +6,17 @@ using System.Threading;
 
 namespace GZipTest
 {
-    static class GZipper
+    internal static class GZipper
     {
         private static readonly Int32 BUFF_SIZE = 1024 * 1024;
-        private static readonly Int32 PROC_COUNT = /*Environment.ProcessorCount*/1;
+        private static readonly Int32 PROC_COUNT = Environment.ProcessorCount;
         private static readonly Object StreamLock = new Object();
         private static readonly Object QueueLock = new Object();
 
         private static Int64 _currentBlockReaded;
         private static Int64 _currentBlockWrited;
-        private static Int64 _currentPosition;
-        private static Boolean _isSearchCompleted;
         private static Int64 _blocks;
-        private static Int64 _headers;
         private static FileStream _outputStream;
-        private static Queue<Int64> _headerPositions = new Queue<long>();
 
         public static void Compress(String inputFileName, String outputFileName = null)
         {
@@ -32,7 +28,6 @@ namespace GZipTest
 
                 _currentBlockWrited = 0;
                 _currentBlockReaded = 0;
-                _currentPosition = 0;
 
                 using (_outputStream = new FileStream((outputFileName ?? inputFile.FullName) + ".gz", FileMode.CreateNew, FileAccess.Write))
                 {
@@ -52,7 +47,6 @@ namespace GZipTest
                     {
                         thread.Join();
                     }
-
                 }
                 Console.WriteLine("Completed");
             }
@@ -74,7 +68,6 @@ namespace GZipTest
 
                     _currentBlockWrited = 0;
                     _currentBlockReaded = 0;
-                    _currentPosition = 0;
 
                     using (_outputStream = File.Create((outputFileName ?? inputFile.FullName.Replace(".gz", ""))))
                     {
@@ -83,8 +76,6 @@ namespace GZipTest
                         Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, _blocks);
 
                         Thread[] threads = new Thread[threadsNumber];
-                        //threads[0] = new Thread(FindCompressedBlocks);
-                        //threads[0].Start(inputFile);
 
                         for (Int64 i = 0; i < threadsNumber; i++)
                         {
@@ -163,10 +154,11 @@ namespace GZipTest
         private static void DecompressBlock(Object inputFileInfo)
         {
             FileInfo inputFile = (FileInfo)inputFileInfo;
+            Byte[] compressedBuffer = new Byte[BUFF_SIZE + 2];
             Byte[] buff;
 
             using (MemoryStream memStream = new MemoryStream())
-            using (FileStream localInputStream = inputFile.OpenRead())
+            using (FileStream localInputStream = new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, 8192))
             {
                 Int64 currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
 
@@ -175,28 +167,19 @@ namespace GZipTest
                     Int64 fragmentStart = BUFF_SIZE * currentBlock;
 
                     localInputStream.Position = fragmentStart;
-                    Int64 currentPosition = Interlocked.Read(ref _currentPosition);
-                    if (currentPosition > localInputStream.Position)
-                        localInputStream.Position = currentPosition;
-
-                    Byte[] fragmentStartBytes = new Byte[3];
 
                     //2 additional bytes in case of "magic numbers" separation
-                    while (localInputStream.Position < fragmentStart + BUFF_SIZE + 2)
+                    Int32 bytesReaded = localInputStream.Read(compressedBuffer, 0, BUFF_SIZE + 2);
+                    localInputStream.Position -= bytesReaded;
+
+                    for (Int64 i = 0; i < bytesReaded - 2;)
                     {
-                        Int32 bytesReaded = localInputStream.Read(fragmentStartBytes, 0, 3);
-
-                        if (bytesReaded < 3)
-                            break;
-
-                        if (fragmentStartBytes[0] == 0x1F && fragmentStartBytes[1] == 0x8B && fragmentStartBytes[2] == 0x8)
+                        if (compressedBuffer[i] == 0x1F && compressedBuffer[i + 1] == 0x8B && compressedBuffer[i + 2] == 0x8)
                         {
-                            Int64 previousPosition = localInputStream.Position;
-                            localInputStream.Position -= 3;
-                            _headers++;
+                            
+                            localInputStream.Position = fragmentStart + i;
                             try
                             {
-
                                 using (GZipStream gzStream = new GZipStream(localInputStream,
                                             CompressionMode.Decompress, true))
                                 {
@@ -205,159 +188,37 @@ namespace GZipTest
 
                                 Console.Write(".");
 
-                                //if (localInputStream.Position - 8192 >= fragmentStart + BUFF_SIZE + 2)
-                                //{
-                                //    Interlocked.Exchange(ref _currentPosition, localInputStream.Position - 8192);
-                                //    break;
-                                //}
-
                                 //The header of the next member may be in a previously inflated block (8Kb)
-                                //if (localInputStream.Position > previousPosition -3 + 8192)
-                                    localInputStream.Position -= 8191;                                
+                                i = (localInputStream.Position - fragmentStart) - 8191;
                             }
                             catch (InvalidDataException)
                             {
-                                localInputStream.Position = previousPosition;
+                                i += 3;
                             }
                         }
                         else
                         {
-                            //currentPosition = Interlocked.Read(ref _currentPosition);
-                            //if (currentPosition > localInputStream.Position)
-                            //    localInputStream.Position = currentPosition;
-                            //else
-                                localInputStream.Position -= 2;
+                            i++;
                         }
                     }
 
-                    Interlocked.Exchange(ref _currentPosition, localInputStream.Position);
+                    Monitor.Enter(StreamLock);
 
-                    //Monitor.Enter(StreamLock);
-
-                    //while (currentBlock != _currentBlockWrited)
-                    //{
-                    //    Monitor.Wait(StreamLock);
-                    //}
+                    while (currentBlock != _currentBlockWrited)
+                    {
+                        Monitor.Wait(StreamLock);
+                    }
 
                     buff = memStream.ToArray();
                     _outputStream.Write(buff, 0, buff.Length);
                     _currentBlockWrited++;
 
-                    //Monitor.PulseAll(StreamLock);
-                    //Monitor.Exit(StreamLock);
+                    Monitor.PulseAll(StreamLock);
+                    Monitor.Exit(StreamLock);
 
                     memStream.SetLength(0);
                     currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
                 }
-            }
-            Console.WriteLine(_headers);
-        }
-
-        //private static void DecompressBlock(Object inputFileInfo)
-        //{
-        //    FileInfo inputFile = (FileInfo)inputFileInfo;
-        //    Byte[] decompressedBuff;
-        //    Int64 currentBlock = 0;
-
-        //    using (FileStream localInputStream = inputFile.OpenRead())
-        //    {
-        //        while (true)
-        //        {
-
-        //            Monitor.Enter(QueueLock);
-
-        //            while (_headerPositions.Count == 0)
-        //            {
-        //                if (Volatile.Read(ref _isSearchCompleted))
-        //                {
-        //                    Monitor.Exit(QueueLock);
-        //                    return;
-        //                }
-        //                Monitor.Wait(QueueLock);
-        //            }
-
-        //            Int64 currentPosition = _headerPositions.Dequeue();
-        //            currentBlock = _currentBlockReaded++;
-
-        //            Monitor.Exit(QueueLock);
-
-        //            if (currentPosition >= Interlocked.Read(ref _currentPosition))
-        //            {
-        //                localInputStream.Position = currentPosition;
-        //                try
-        //                {
-        //                    using (MemoryStream memStream = new MemoryStream())
-        //                    {
-        //                        using (GZipStream gzStream = new GZipStream(localInputStream,
-        //                                    CompressionMode.Decompress, true))
-        //                        {
-        //                            gzStream.CopyTo(memStream);
-        //                        }
-        //                        decompressedBuff = memStream.ToArray();
-        //                    }
-
-
-        //                    Interlocked.Exchange(ref _currentPosition, localInputStream.Position - 8192);
-
-        //                    Monitor.Enter(StreamLock);
-
-        //                    while (currentBlock != _currentBlockWrited)
-        //                        Monitor.Wait(StreamLock);
-
-
-        //                    _outputStream.Write(decompressedBuff, 0, decompressedBuff.Length);
-        //                    _currentBlockWrited++;
-
-        //                    Monitor.PulseAll(StreamLock);
-
-        //                    Monitor.Exit(StreamLock);
-
-        //                    Console.Write(".");
-        //                }
-        //                catch (InvalidDataException)
-        //                {
-        //                    Interlocked.Increment(ref _currentBlockWrited);
-        //                }
-        //            }
-        //            else
-        //            {
-        //                Interlocked.Increment(ref _currentBlockWrited);
-        //            }
-        //        }
-        //    }
-        //}
-
-        private static void FindCompressedBlocks(Object inputFileInfo)
-        {
-            FileInfo inputFile = (FileInfo)inputFileInfo;
-            Byte[] fragmentStartBytes = new Byte[3];
-            using (FileStream localInputStream = inputFile.OpenRead())
-            {
-                while (localInputStream.Position < localInputStream.Length)
-                {
-                    Int32 bytesReaded = localInputStream.Read(fragmentStartBytes, 0, 3);
-
-                    if (bytesReaded < 3)
-                        break;
-
-                    if (fragmentStartBytes[0] == 0x1F && fragmentStartBytes[1] == 0x8B && fragmentStartBytes[2] == 0x8)
-                    {
-                        Monitor.Enter(QueueLock);
-                        _headerPositions.Enqueue(localInputStream.Position - 3);
-                        Monitor.Pulse(QueueLock);
-                        Monitor.Exit(QueueLock);
-                    }
-                    else
-                    {
-                        localInputStream.Position -= 2;
-                    }
-
-                    Int64 currentPosition = Interlocked.Read(ref _currentPosition);
-                    if (currentPosition > localInputStream.Position)
-                        localInputStream.Position = currentPosition;
-                }
-
-                Volatile.Write(ref _isSearchCompleted, true);
             }
         }
     }
