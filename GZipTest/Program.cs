@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 
 namespace GZipTest
 {
@@ -24,10 +25,14 @@ namespace GZipTest
                 switch (args[0])
                 {
                     case "compress":
+                        Console.Write("Compressing...   0%");
                         GZipper.Compress(inputFileName, outputFileName);
+                        Console.WriteLine("\nCompleted");
                         break;
                     case "decompress":
+                        Console.Write("Decompressing...   0%");
                         GZipper.Decompress(inputFileName, outputFileName);
+                        Console.WriteLine("\nCompleted");
                         break;
                     default:
                         Console.WriteLine("Please, use the following parameters: GZipTest.exe compress/decompress input_file_name [output_file_name]");

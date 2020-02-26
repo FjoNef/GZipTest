@@ -35,43 +35,33 @@ namespace GZipTest
 
         public static void Compress(String inputFileName, String outputFileName = null)
         {
-            try
+            FileInfo inputFile = new FileInfo(inputFileName);
+
+            using (GZipperStreamSyncronizer streamSyncronizer = new GZipperStreamSyncronizer(inputFile, outputFileName ?? (inputFileName + ".gz")))
             {
-                Console.Write("Compressing...   0%");
+                streamSyncronizer.Blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
-                FileInfo inputFile = new FileInfo(inputFileName);
-
-                using (GZipperStreamSyncronizer streamSyncronizer = new GZipperStreamSyncronizer(inputFile, outputFileName ?? (inputFileName + ".gz")))
+                if (streamSyncronizer.Blocks > 0)
                 {
-                    streamSyncronizer.Blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
+                    Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, streamSyncronizer.Blocks);
 
-                    if (streamSyncronizer.Blocks > 0)
+                    Thread[] threads = new Thread[threadsNumber];
+
+                    for (Int64 i = 0; i < threadsNumber; i++)
                     {
-                        Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, streamSyncronizer.Blocks);
-
-                        Thread[] threads = new Thread[threadsNumber];
-
-                        for (Int64 i = 0; i < threadsNumber; i++)
-                        {
-                            threads[i] = new Thread(CompressBlock);
-                            threads[i].Start(streamSyncronizer);
-                        }
-
-                        foreach (Thread thread in threads)
-                        {
-                            thread.Join();
-                        }
+                        threads[i] = new Thread(CompressBlock);
+                        threads[i].Start(streamSyncronizer);
                     }
-                    else
+
+                    foreach (Thread thread in threads)
                     {
-                        CompressEmptyFile(streamSyncronizer);
+                        thread.Join();
                     }
                 }
-                Console.WriteLine("\nCompleted");
-            }
-            catch (FileNotFoundException)
-            {
-                Console.WriteLine("\nNo such file or directory");
+                else
+                {
+                    CompressEmptyFile(streamSyncronizer);
+                }
             }
         }
 
@@ -83,43 +73,29 @@ namespace GZipTest
 
         public static void Decompress(String inputFileName, String outputFileName = null)
         {
-            try
+            FileInfo inputFile = new FileInfo(inputFileName);
+
+            if (inputFile.Extension != ".gz")
+                throw new FormatException("File is not a gzip archive");
+
+            using (GZipperStreamSyncronizer streamSyncronizer = new GZipperStreamSyncronizer(inputFile, (outputFileName ?? inputFile.FullName.Replace(".gz", ""))))
             {
-                FileInfo inputFile = new FileInfo(inputFileName);
+                streamSyncronizer.Blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
-                if (inputFile.Extension == ".gz")
+                Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, streamSyncronizer.Blocks);
+
+                Thread[] threads = new Thread[threadsNumber];
+
+                for (Int64 i = 0; i < threadsNumber; i++)
                 {
-                    Console.Write("Decompressing...   0%");
-
-                    using (GZipperStreamSyncronizer streamSyncronizer = new GZipperStreamSyncronizer(inputFile, (outputFileName ?? inputFile.FullName.Replace(".gz", ""))))
-                    {
-                        streamSyncronizer.Blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
-
-                        Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, streamSyncronizer.Blocks);
-
-                        Thread[] threads = new Thread[threadsNumber];
-
-                        for (Int64 i = 0; i < threadsNumber; i++)
-                        {
-                            threads[i] = new Thread(DecompressBlock);
-                            threads[i].Start(streamSyncronizer);
-                        }
-
-                        foreach (Thread thread in threads)
-                        {
-                            thread.Join();
-                        }
-                    }
-                    Console.WriteLine("\nCompleted");
+                    threads[i] = new Thread(DecompressBlock);
+                    threads[i].Start(streamSyncronizer);
                 }
-                else
+
+                foreach (Thread thread in threads)
                 {
-                    Console.Write("The file is not a gzip archive");
+                    thread.Join();
                 }
-            }
-            catch (FileNotFoundException)
-            {
-                Console.WriteLine("\nNo such file or directory");
             }
         }
 
