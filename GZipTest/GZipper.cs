@@ -1,24 +1,24 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Threading;
 
 namespace GZipTest
 {
-    internal static class GZipper
+    public class GZipper
     {
         private static readonly Int32 BUFF_SIZE = 1024 * 1024;
+        private static readonly Int32 DEFLATE_BUFF_SIZE = 8 * 1024;
         private static readonly Int32 PROC_COUNT = Environment.ProcessorCount;
-        private static readonly Object StreamLock = new Object();
-        private static readonly Object QueueLock = new Object();
 
-        private static Int64 _currentBlockReaded;
-        private static Int64 _currentBlockWrited;
-        private static Int64 _blocks;
-        private static FileStream _outputStream;
+        private readonly Object StreamLock = new Object();
 
-        public static void Compress(String inputFileName, String outputFileName = null)
+        private Int64 _currentBlockReaded = 0;
+        private Int64 _currentBlockWrited = 0;
+        private Int64 _blocks = 0;
+        private FileStream _outputStream = null;
+
+        public void Compress(String inputFileName, String outputFileName = null)
         {
             try
             {
@@ -29,7 +29,7 @@ namespace GZipTest
                 _currentBlockWrited = 0;
                 _currentBlockReaded = 0;
 
-                using (_outputStream = new FileStream((outputFileName ?? inputFile.FullName) + ".gz", FileMode.CreateNew, FileAccess.Write))
+                using (_outputStream = new FileStream((outputFileName ?? inputFile.FullName) + ".gz", FileMode.Create, FileAccess.Write))
                 {
                     _blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
@@ -56,7 +56,7 @@ namespace GZipTest
             }
         }
 
-        public static void Decompress(String inputFileName, String outputFileName = null)
+        public void Decompress(String inputFileName, String outputFileName = null)
         {
             try
             {
@@ -101,15 +101,16 @@ namespace GZipTest
             }
         }
 
-        private static void CompressBlock(Object inputFileInfo)
+        private void CompressBlock(Object inputFileInfo)
         {
             Int32 bytesReaded;
             Byte[] compressedBuff;
-            Byte[] buff = new Byte[BUFF_SIZE];
+            Byte[] decompressedBuff = new Byte[BUFF_SIZE];
 
             FileInfo inputFile = (FileInfo)inputFileInfo;
 
-            using (FileStream localInputStream = inputFile.OpenRead())
+            using (MemoryStream memStream = new MemoryStream())
+            using (FileStream localInputStream = new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, DEFLATE_BUFF_SIZE))
             {
                 Int64 currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
 
@@ -119,16 +120,13 @@ namespace GZipTest
 
                     localInputStream.Position = fragmentStart;
 
-                    bytesReaded = localInputStream.Read(buff, 0, buff.Length);
+                    bytesReaded = localInputStream.Read(decompressedBuff, 0, decompressedBuff.Length);
 
-                    using (MemoryStream memStream = new MemoryStream())
+                    using (GZipStream gzStream = new GZipStream(memStream, CompressionMode.Compress, true))
                     {
-                        using (GZipStream gzStream = new GZipStream(memStream, CompressionMode.Compress, true))
-                        {
-                            gzStream.Write(buff, 0, bytesReaded);
-                        }
-                        compressedBuff = memStream.ToArray();
+                        gzStream.Write(decompressedBuff, 0, bytesReaded);
                     }
+                    compressedBuff = memStream.ToArray();
 
                     Monitor.Enter(StreamLock);
 
@@ -144,6 +142,8 @@ namespace GZipTest
 
                     Monitor.Exit(StreamLock);
 
+                    memStream.SetLength(0);
+
                     Console.Write(".");
 
                     currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
@@ -151,14 +151,14 @@ namespace GZipTest
             }
         }
 
-        private static void DecompressBlock(Object inputFileInfo)
+        private void DecompressBlock(Object inputFileInfo)
         {
             FileInfo inputFile = (FileInfo)inputFileInfo;
             Byte[] compressedBuffer = new Byte[BUFF_SIZE + 2];
             Byte[] buff;
 
             using (MemoryStream memStream = new MemoryStream())
-            using (FileStream localInputStream = new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, 8192))
+            using (FileStream localInputStream = new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, DEFLATE_BUFF_SIZE))
             {
                 Int64 currentBlock = Interlocked.Increment(ref _currentBlockReaded) - 1;
 
@@ -176,7 +176,6 @@ namespace GZipTest
                     {
                         if (compressedBuffer[i] == 0x1F && compressedBuffer[i + 1] == 0x8B && compressedBuffer[i + 2] == 0x8)
                         {
-                            
                             localInputStream.Position = fragmentStart + i;
                             try
                             {
@@ -189,7 +188,7 @@ namespace GZipTest
                                 Console.Write(".");
 
                                 //The header of the next member may be in a previously inflated block (8Kb)
-                                i = (localInputStream.Position - fragmentStart) - 8191;
+                                i = (localInputStream.Position - fragmentStart) - (DEFLATE_BUFF_SIZE - 1);
                             }
                             catch (InvalidDataException)
                             {
