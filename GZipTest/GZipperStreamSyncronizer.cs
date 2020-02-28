@@ -26,25 +26,30 @@ namespace GZipTest
         internal void WriteBlockToFile(MemoryStream memStream, Int64 currentBlock, Boolean isLastChunk)
         {
             Byte[] decompressedBuff = memStream.ToArray();
-
-            Monitor.Enter(StreamLock);
-
-            while (currentBlock != _currentBlockWrited)
+            try
             {
-                Monitor.Wait(StreamLock);
+                Monitor.Enter(StreamLock);
+
+                while (currentBlock != _currentBlockWrited)
+                {
+                    Monitor.Wait(StreamLock);
+                }
+
+                _outputStream.Write(decompressedBuff, 0, decompressedBuff.Length);
+
+                if (isLastChunk)
+                {
+                    _currentBlockWrited++;
+
+                    UpdateProgress();
+                }
+
+                Monitor.PulseAll(StreamLock);
             }
-
-            _outputStream.Write(decompressedBuff, 0, decompressedBuff.Length);
-
-            if (isLastChunk)
+            finally
             {
-                _currentBlockWrited++;
-
-                UpdateProgress();
+                Monitor.Exit(StreamLock);
             }
-
-            Monitor.PulseAll(StreamLock);
-            Monitor.Exit(StreamLock);
 
             memStream.SetLength(0);
         }

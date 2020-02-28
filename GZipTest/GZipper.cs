@@ -158,11 +158,12 @@ namespace GZipTest
                             localInputStream.Position = fragmentStart + i;
                             try
                             {
+
                                 using (GZipStream gzStream = new GZipStream(localInputStream,
                                             CompressionMode.Decompress, true))
                                 {
-                                    byte[] buffer = new byte[DEFLATE_BUFF_SIZE * 10];
-                                    int read;
+                                    Byte[] buffer = new Byte[DEFLATE_BUFF_SIZE * 10];
+                                    Int32 read;
                                     while ((read = gzStream.Read(buffer, 0, buffer.Length)) != 0)
                                     {
                                         memStream.Write(buffer, 0, read);
