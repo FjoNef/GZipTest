@@ -9,22 +9,27 @@ namespace GZipTest
 {
     internal class FileHelper
     {
-        private GZipperStreamSyncronizer _streamSync;
+        private readonly GZipperThreadSyncronizer _threadSync;
+        private readonly FileInfo _inputFile;
+        private readonly FileInfo _outputFile;
 
-        internal FileHelper(GZipperStreamSyncronizer gZipperStreamSyncronizer)
+        internal FileHelper(GZipperThreadSyncronizer gZipperStreamSyncronizer, FileInfo inputFile, FileInfo outputFile)
         {
-            _streamSync = gZipperStreamSyncronizer;
+            _threadSync = gZipperStreamSyncronizer;
+            _inputFile = inputFile;
+            _outputFile = outputFile;
         }
 
         internal void WriteDecompressToFile()
         {
             Int64 blockNumber;
-            using (FileStream outputFile = new FileStream(_streamSync.OutputFile.FullName, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Write))
+            using (FileStream outputFile = new FileStream(_outputFile.FullName, FileMode.Create, FileAccess.Write))
             {
-                while ((blockNumber = _streamSync.GetDecompressedBlock(out Byte[] block)) > 0)
+                while ((blockNumber = _threadSync.GetBlockFromOutputQueue(out Byte[] block)) > 0)
                 {
                     outputFile.Position = blockNumber * (1024 * 1024);
                     outputFile.Write(block, 0, block.Length);
+                    Console.Write('.');
                 }
             }
         }
@@ -32,44 +37,71 @@ namespace GZipTest
         internal void WriteCompressToFile()
         {
             Int64 blockNumber;
-            using (FileStream outputFile = new FileStream(_streamSync.OutputFile.FullName, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (FileStream outputFile = new FileStream(_outputFile.FullName, FileMode.Create, FileAccess.Write))
             {
-                while ((blockNumber = _streamSync.GetCompressedBlock(out Byte[] block)) > 0)
+                while ((blockNumber = _threadSync.GetBlockFromOutputQueue(out Byte[] block)) > 0)
                 {
+                    outputFile.Write(BitConverter.GetBytes(block.Length), 0, 4);
+                    outputFile.Write(BitConverter.GetBytes(blockNumber), 0, 8);
                     outputFile.Write(block, 0, block.Length);
+                    Console.Write('.');
                 }
             }
         }
 
         internal void ReadDecompressFromFile()
         {
-            Int64 blockNumber = _streamSync.CurrentBlockReaded;
+            Int64 blockNumber = 0;
+            Int64 blocksCount = (Int64)Math.Ceiling((Double)_inputFile.Length / (1024 * 1024));
             Int32 bytesReaded;
             Byte[] block = new Byte[1024 * 1024];
-            using (FileStream inputFile = new FileStream(_streamSync.InputFile.FullName,FileMode.Open,FileAccess.Read,FileShare.Read))
-            {                
-                while ((blockNumber = _streamSync.CurrentBlockReaded)>0)
+            using (FileStream inputFile = new FileStream(_inputFile.FullName, FileMode.Open, FileAccess.Read))
+            {
+                while (blockNumber < blocksCount)
                 {
                     inputFile.Position = blockNumber * (1024 * 1024);
                     bytesReaded = inputFile.Read(block, 0, block.Length);
-                    _streamSync.PutBlockToQueue(block, blockNumber);
+                    if (bytesReaded < block.Length)
+                    {
+                        Byte[] finalBlock = new Byte[bytesReaded];
+                        Array.Copy(block, finalBlock, finalBlock.Length);
+                        _threadSync.PutBlockToInputQueue(finalBlock, blockNumber);
+                    }
+                    else
+                    {
+                        _threadSync.PutBlockToInputQueue(block, blockNumber);
+                    }
+                    blockNumber++;
                 }
+                _threadSync.SetEndOfFile();
             }
         }
 
         internal void ReadCompressFromFile()
         {
-            Int64 blockNumber = _streamSync.CurrentBlockReaded;
-            Int32 bytesReaded;
-            Byte[] block;
-            using (FileStream inputFile = new FileStream(_streamSync.InputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.None))
+            Int64 blockNumber;
+            Int32 bytesReaded, blockLength;
+            Byte[] block, header = new Byte[12];
+            using (FileStream inputFile = new FileStream(_inputFile.FullName, FileMode.Open, FileAccess.Read))
             {
-                while (inputFile.Position<inputFile.Length)
+                while (inputFile.Position < inputFile.Length)
                 {
-                    inputFile.Position = blockNumber * (1024 * 1024);
+                    bytesReaded = inputFile.Read(header, 0, header.Length);
+                    if (bytesReaded != header.Length)
+                        throw new EndOfStreamException("Unexpected end of file");
+
+                    blockLength = BitConverter.ToInt32(header, 0);
+                    blockNumber = BitConverter.ToInt64(header, 4);
+                    block = new Byte[blockLength];
+
                     bytesReaded = inputFile.Read(block, 0, block.Length);
-                    _streamSync.PutBlockToQueue(block, blockNumber);
+                    if (bytesReaded != blockLength)
+                        throw new EndOfStreamException("Unexpected end of file");
+
+                    _threadSync.PutBlockToInputQueue(block, blockNumber);
+                    Console.Write(blockNumber);
                 }
+                _threadSync.SetEndOfFile();
             }
         }
     }
