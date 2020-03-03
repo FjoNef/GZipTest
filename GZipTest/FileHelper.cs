@@ -25,11 +25,11 @@ namespace GZipTest
             Int64 blockNumber;
             using (FileStream outputFile = new FileStream(_outputFile.FullName, FileMode.Create, FileAccess.Write))
             {
-                while ((blockNumber = _threadSync.GetBlockFromOutputQueue(out Byte[] block)) > 0)
+                while ((blockNumber = _threadSync.GetBlockFromOutputQueue(out Byte[] block)) >= 0)
                 {
                     outputFile.Position = blockNumber * (1024 * 1024);
                     outputFile.Write(block, 0, block.Length);
-                    Console.Write('.');
+                    Console.Write("w"+ blockNumber);
                 }
             }
         }
@@ -39,12 +39,12 @@ namespace GZipTest
             Int64 blockNumber;
             using (FileStream outputFile = new FileStream(_outputFile.FullName, FileMode.Create, FileAccess.Write))
             {
-                while ((blockNumber = _threadSync.GetBlockFromOutputQueue(out Byte[] block)) > 0)
+                while ((blockNumber = _threadSync.GetBlockFromOutputQueue(out Byte[] block)) >= 0)
                 {
                     outputFile.Write(BitConverter.GetBytes(block.Length), 0, 4);
                     outputFile.Write(BitConverter.GetBytes(blockNumber), 0, 8);
                     outputFile.Write(block, 0, block.Length);
-                    Console.Write('.');
+                    Console.Write("w" + blockNumber);
                 }
             }
         }
@@ -71,6 +71,7 @@ namespace GZipTest
                     {
                         _threadSync.PutBlockToInputQueue(block, blockNumber);
                     }
+                    Console.Write("r" + blockNumber);
                     blockNumber++;
                 }
                 _threadSync.SetEndOfFile();
@@ -99,7 +100,7 @@ namespace GZipTest
                         throw new EndOfStreamException("Unexpected end of file");
 
                     _threadSync.PutBlockToInputQueue(block, blockNumber);
-                    Console.Write(blockNumber);
+                    Console.Write("r" + blockNumber);
                 }
                 _threadSync.SetEndOfFile();
             }

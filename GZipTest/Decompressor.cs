@@ -34,7 +34,7 @@ namespace GZipTest
         {
             Int64 blockNumber;
 
-            while ((blockNumber = _threadSync.GetBlockFromInputQueue(out Byte[] block)) > 0)
+            while ((blockNumber = _threadSync.GetBlockFromInputQueue(out Byte[] block)) >= 0)
             {
                 using (MemoryStream memStreamInput = new MemoryStream(block))
                 using (MemoryStream memStreamOutput = new MemoryStream())

@@ -33,17 +33,14 @@ namespace GZipTest
         internal void Compress()
         {
             Int64 blockNumber;
-            
+            while ((blockNumber = _threadSync.GetBlockFromInputQueue(out Byte[] block)) >= 0)
             {
-                while ((blockNumber = _threadSync.GetBlockFromInputQueue(out Byte[] block)) > 0)
+                using (MemoryStream memStream = new MemoryStream())
+                using (GZipStream gzStream = new GZipStream(memStream,
+                                                CompressionMode.Compress, true))
                 {
-                    using (MemoryStream memStream = new MemoryStream())
-                    using (GZipStream gzStream = new GZipStream(memStream,
-                                                    CompressionMode.Compress, true))
-                    {
-                        gzStream.Write(block, 0, block.Length);
-                        _threadSync.PutBlockToOutputQueue(memStream.ToArray(), blockNumber);
-                    }
+                    gzStream.Write(block, 0, block.Length);
+                    _threadSync.PutBlockToOutputQueue(memStream.ToArray(), blockNumber);
                 }
             }
         }
@@ -51,7 +48,7 @@ namespace GZipTest
         internal void Finish()
         {
             _inputProduce.Join();
-            _threadSync.SetAllBlocksProcessed();            
+            _threadSync.SetAllBlocksProcessed();
             _outputConsume.Join();
         }
     }

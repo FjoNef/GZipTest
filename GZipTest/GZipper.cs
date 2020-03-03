@@ -47,15 +47,15 @@ namespace GZipTest
                 {
                     Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, blocksCount);
 
-                    Thread[] threads = new Thread[threadsNumber];
-
-                    compressor.Start();
+                    Thread[] threads = new Thread[threadsNumber];                    
 
                     for (Int64 i = 0; i < threadsNumber; i++)
                     {
                         threads[i] = new Thread(compressor.Compress);
                         threads[i].Start();
                     }
+
+                    compressor.Start();
 
                     foreach (Thread thread in threads)
                     {
@@ -97,15 +97,15 @@ namespace GZipTest
 
                 Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, blocks);
 
-                Thread[] threads = new Thread[threadsNumber];
-
-                decompressor.Start();
+                Thread[] threads = new Thread[threadsNumber];                
 
                 for (Int64 i = 0; i < threadsNumber; i++)
                 {
                     threads[i] = new Thread(decompressor.Decompress);
                     threads[i].Start();
                 }
+
+                decompressor.Start();
 
                 foreach (Thread thread in threads)
                 {

@@ -13,11 +13,7 @@ namespace GZipTest
         private Queue<KeyValuePair<Int64, Byte[]>> outputQueue = new Queue<KeyValuePair<Int64, Byte[]>>();
         private bool isEOFReached;
         private bool isAllBlocksProcessed;
-
-        internal GZipperThreadSyncronizer()
-        {
-            
-        }
+        private Int32 maxLength = 4;
 
         internal Int64 GetBlockFromOutputQueue(out Byte[] block)
         {
@@ -31,6 +27,7 @@ namespace GZipTest
                         block = new byte[0];
                         return -1;
                     }
+                    Monitor.Pulse(OutputQueueLock);
                     Monitor.Wait(OutputQueueLock);
                 }
                 KeyValuePair<Int64, Byte[]> kvPair = outputQueue.Dequeue();
@@ -48,6 +45,11 @@ namespace GZipTest
             try
             {
                 Monitor.Enter(OutputQueueLock);
+                while (outputQueue.Count >= maxLength)
+                {
+                    Monitor.Pulse(OutputQueueLock);
+                    Monitor.Wait(OutputQueueLock);
+                }
                 outputQueue.Enqueue(new KeyValuePair<Int64, Byte[]>(blockNumber, block));
                 Monitor.Pulse(OutputQueueLock);
             }
@@ -62,6 +64,11 @@ namespace GZipTest
             try
             {
                 Monitor.Enter(InputQueueLock);
+                while (inputQueue.Count >= maxLength)
+                {
+                    Monitor.Pulse(InputQueueLock);
+                    Monitor.Wait(InputQueueLock);
+                }
                 inputQueue.Enqueue(new KeyValuePair<Int64, Byte[]>(blockNumber, block));
                 Monitor.Pulse(InputQueueLock);
             }
@@ -83,6 +90,7 @@ namespace GZipTest
                         block = new byte[0];
                         return -1;
                     }
+                    Monitor.Pulse(InputQueueLock);
                     Monitor.Wait(InputQueueLock);
                 }
                 KeyValuePair<Int64, Byte[]> kvPair = inputQueue.Dequeue();
@@ -98,7 +106,7 @@ namespace GZipTest
         internal void SetEndOfFile()
         {
             Monitor.Enter(InputQueueLock);
-            isEOFReached=true;
+            isEOFReached = true;
             Monitor.PulseAll(InputQueueLock);
             Monitor.Exit(InputQueueLock);
         }
