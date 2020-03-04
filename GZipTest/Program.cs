@@ -1,11 +1,10 @@
 ﻿using System;
-using System.IO;
 
 namespace GZipTest
 {
-    class Program
+    internal class Program
     {
-        static int Main(string[] args)
+        private static int Main(string[] args)
         {
             try
             {
@@ -29,11 +28,13 @@ namespace GZipTest
                         GZipper.Compress(inputFileName, outputFileName);
                         Console.WriteLine("\nCompleted");
                         break;
+
                     case "decompress":
                         Console.Write("Decompressing...   0%");
                         GZipper.Decompress(inputFileName, outputFileName);
                         Console.WriteLine("\nCompleted");
                         break;
+
                     default:
                         Console.WriteLine("Please, use the following parameters: GZipTest.exe compress/decompress input_file_name [output_file_name]");
                         break;

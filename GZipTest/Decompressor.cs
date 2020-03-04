@@ -1,11 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace GZipTest
 {
@@ -85,7 +81,6 @@ namespace GZipTest
                         memStreamOutput.SetLength(0);
                     }
                 }
-                Console.WriteLine("Decompress thread ended");
             }
             catch (Exception ex)
             {

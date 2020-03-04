@@ -1,15 +1,11 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace GZipTest
 {
-    class Compressor : IProcessor
+    internal class Compressor : IProcessor
     {
         private readonly FileHelper _fileHelper;
         private readonly Int32 _threadsNumber;
@@ -69,35 +65,21 @@ namespace GZipTest
         {
             try
             {
-                while (InputQueue.Dequeue(out Byte[] block, out Int64 blockNumber))
+                using (MemoryStream memStream = new MemoryStream())
                 {
-                    Byte[] buff;
-                    using (MemoryStream memStream = new MemoryStream())
+                    while (InputQueue.Dequeue(out Byte[] block, out Int64 blockNumber))
                     {
                         using (GZipStream gzStream = new GZipStream(memStream,
                                                         CompressionMode.Compress, true))
                         {
                             gzStream.Write(block, 0, block.Length);
                         }
-                        memStream.Position = 0;
-                        using (MemoryStream memStreamOutput = new MemoryStream())
-                        {
-                            using (GZipStream gzStream = new GZipStream(memStream,
-                                                            CompressionMode.Decompress, true))
-                            {
-                                gzStream.CopyTo(memStreamOutput);
-                            }
 
-                            buff = memStream.ToArray();
-                        }
+                        if (!OutputQueue.Enqueue(memStream.ToArray(), blockNumber))
+                            break;
+                        memStream.SetLength(0);
                     }
-
-
-                    if (!OutputQueue.Enqueue(buff, blockNumber))
-                        break;
                 }
-
-                Console.WriteLine("Compress thread ended");
             }
             catch (Exception ex)
             {

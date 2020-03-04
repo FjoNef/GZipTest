@@ -1,7 +1,5 @@
 ﻿using System;
 using System.IO;
-using System.IO.Compression;
-using System.Threading;
 
 namespace GZipTest
 {
@@ -16,18 +14,18 @@ namespace GZipTest
             0x8B, // ID2
             0x8,  // CM = deflate
             0,    // FLG, no text, no crc, no extra, no name, no comment
- 
+
             // MTIME (Modification Time) - no time available
             0,
             0,
             0,
-            0, 
- 
+            0,
+
             // XFL
             // 2 = compressor used max compression, slowest algorithm
             // 4 = compressor used fastest algorithm
             4,
- 
+
             // OS: 0 = FAT filesystem (MS-DOS, OS/2, NT/Win32)
             0
         };
