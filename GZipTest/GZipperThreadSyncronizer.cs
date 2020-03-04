@@ -9,73 +9,15 @@ namespace GZipTest
     {
         private readonly Object InputQueueLock = new Object();
         private readonly Object OutputQueueLock = new Object();
+        private readonly Int32 _maxLength;
         private Queue<KeyValuePair<Int64, Byte[]>> inputQueue = new Queue<KeyValuePair<Int64, Byte[]>>();
         private Queue<KeyValuePair<Int64, Byte[]>> outputQueue = new Queue<KeyValuePair<Int64, Byte[]>>();
         private bool isEOFReached;
         private bool isAllBlocksProcessed;
-        private Int32 maxLength = 4;
 
-        internal Int64 GetBlockFromOutputQueue(out Byte[] block)
+        internal GZipperThreadSyncronizer(Int32 maxLength)
         {
-            try
-            {
-                Monitor.Enter(OutputQueueLock);
-                while (outputQueue.Count == 0)
-                {
-                    if (isAllBlocksProcessed)
-                    {
-                        block = new byte[0];
-                        return -1;
-                    }
-                    Monitor.Pulse(OutputQueueLock);
-                    Monitor.Wait(OutputQueueLock);
-                }
-                KeyValuePair<Int64, Byte[]> kvPair = outputQueue.Dequeue();
-                block = kvPair.Value;
-                return kvPair.Key;
-            }
-            finally
-            {
-                Monitor.Exit(OutputQueueLock);
-            }
-        }
-
-        internal void PutBlockToOutputQueue(Byte[] block, Int64 blockNumber)
-        {
-            try
-            {
-                Monitor.Enter(OutputQueueLock);
-                while (outputQueue.Count >= maxLength)
-                {
-                    Monitor.Pulse(OutputQueueLock);
-                    Monitor.Wait(OutputQueueLock);
-                }
-                outputQueue.Enqueue(new KeyValuePair<Int64, Byte[]>(blockNumber, block));
-                Monitor.Pulse(OutputQueueLock);
-            }
-            finally
-            {
-                Monitor.Exit(OutputQueueLock);
-            }
-        }
-
-        internal void PutBlockToInputQueue(Byte[] block, Int64 blockNumber)
-        {
-            try
-            {
-                Monitor.Enter(InputQueueLock);
-                while (inputQueue.Count >= maxLength)
-                {
-                    Monitor.Pulse(InputQueueLock);
-                    Monitor.Wait(InputQueueLock);
-                }
-                inputQueue.Enqueue(new KeyValuePair<Int64, Byte[]>(blockNumber, block));
-                Monitor.Pulse(InputQueueLock);
-            }
-            finally
-            {
-                Monitor.Exit(InputQueueLock);
-            }
+            _maxLength = maxLength;
         }
 
         internal Int64 GetBlockFromInputQueue(out Byte[] block)
@@ -102,6 +44,75 @@ namespace GZipTest
                 Monitor.Exit(InputQueueLock);
             }
         }
+
+        internal Int64 GetBlockFromOutputQueue(out Byte[] block)
+        {
+            try
+            {
+                Monitor.Enter(OutputQueueLock);
+                while (outputQueue.Count == 0)
+                {
+                    if (isAllBlocksProcessed)
+                    {
+                        block = new byte[0];
+                        return -1;
+                    }
+                    Monitor.Pulse(OutputQueueLock);
+                    Monitor.Wait(OutputQueueLock);
+                }
+                KeyValuePair<Int64, Byte[]> kvPair = outputQueue.Dequeue();
+                block = kvPair.Value;
+                return kvPair.Key;
+            }
+            finally
+            {
+                Monitor.Exit(OutputQueueLock);
+            }
+        }
+
+        internal bool PutBlockToInputQueue(Byte[] block, Int64 blockNumber)
+        {
+            try
+            {
+                Monitor.Enter(InputQueueLock);
+                while (inputQueue.Count >= _maxLength)
+                {
+                    if (isEOFReached)
+                        return false;
+                    Monitor.Pulse(InputQueueLock);
+                    Monitor.Wait(InputQueueLock);
+                }
+                inputQueue.Enqueue(new KeyValuePair<Int64, Byte[]>(blockNumber, block));
+                Monitor.Pulse(InputQueueLock);
+                return true;
+            }
+            finally
+            {
+                Monitor.Exit(InputQueueLock);
+            }
+        }
+
+        internal bool PutBlockToOutputQueue(Byte[] block, Int64 blockNumber)
+        {
+            try
+            {
+                Monitor.Enter(OutputQueueLock);
+                while (outputQueue.Count >= _maxLength)
+                {
+                    if (isAllBlocksProcessed)
+                        return false;
+                    Monitor.Pulse(OutputQueueLock);
+                    Monitor.Wait(OutputQueueLock);
+                }
+                outputQueue.Enqueue(new KeyValuePair<Int64, Byte[]>(blockNumber, block));
+                Monitor.Pulse(OutputQueueLock);
+                return true;
+            }
+            finally
+            {
+                Monitor.Exit(OutputQueueLock);
+            }
+        }             
 
         internal void SetEndOfFile()
         {

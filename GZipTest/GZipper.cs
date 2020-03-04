@@ -37,15 +37,15 @@ namespace GZipTest
             try
             {
                 FileInfo inputFile = new FileInfo(inputFileName);
-                FileInfo outputFile = new FileInfo(outputFileName ?? (inputFileName + ".gz2"));
-
-                Compressor compressor = new Compressor(inputFile, outputFile);
+                FileInfo outputFile = new FileInfo(outputFileName ?? (inputFileName + ".gz2"));                
 
                 Int64 blocksCount = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
                 if (blocksCount > 0)
                 {
                     Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, blocksCount);
+
+                    Compressor compressor = new Compressor(inputFile, outputFile, threadsNumber);
 
                     Thread[] threads = new Thread[threadsNumber];                    
 
@@ -63,6 +63,9 @@ namespace GZipTest
                     }
 
                     compressor.Finish();
+
+                    if (compressor.InnerException != null)
+                        throw compressor.InnerException;
                 }
                 else
                 {
@@ -89,13 +92,13 @@ namespace GZipTest
                 FileInfo outputFile = new FileInfo(outputFileName ?? inputFile.FullName.Replace(".gz2", ""));
 
                 if (inputFile.Extension != ".gz2")
-                    throw new FormatException("File is not a gzip archive");
-
-                Decompressor decompressor = new Decompressor(inputFile, outputFile);
+                    throw new FormatException("File is not a gzip archive");                
 
                 Int64 blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
                 Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, blocks);
+
+                Decompressor decompressor = new Decompressor(inputFile, outputFile, threadsNumber);
 
                 Thread[] threads = new Thread[threadsNumber];                
 
@@ -113,6 +116,9 @@ namespace GZipTest
                 }
 
                 decompressor.Finish();
+
+                if (decompressor.InnerException != null)
+                    throw decompressor.InnerException;
             }
             catch(Exception ex)
             {

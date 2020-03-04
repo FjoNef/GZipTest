@@ -16,9 +16,11 @@ namespace GZipTest
         private Thread _inputProduce;
         private Thread _outputConsume;
 
-        internal Decompressor(FileInfo inputFile, FileInfo outputFile)
+        internal Exception InnerException { get; set; }
+
+        internal Decompressor(FileInfo inputFile, FileInfo outputFile, Int32 queueMaxLength)
         {
-            _threadSync = new GZipperThreadSyncronizer();
+            _threadSync = new GZipperThreadSyncronizer(queueMaxLength);
             _fileHelper = new FileHelper(_threadSync, inputFile, outputFile);
             _inputProduce = new Thread(_fileHelper.ReadCompressFromFile);
             _outputConsume = new Thread(_fileHelper.WriteDecompressToFile);
@@ -32,26 +34,44 @@ namespace GZipTest
 
         internal void Decompress()
         {
-            Int64 blockNumber;
-
-            while ((blockNumber = _threadSync.GetBlockFromInputQueue(out Byte[] block)) >= 0)
+            try
             {
-                using (MemoryStream memStreamInput = new MemoryStream(block))
+                Int64 blockNumber;
                 using (MemoryStream memStreamOutput = new MemoryStream())
-                using (GZipStream gzStream = new GZipStream(memStreamInput,
-                                                CompressionMode.Decompress, true))
                 {
-                    gzStream.CopyTo(memStreamOutput);
-                    _threadSync.PutBlockToOutputQueue(memStreamOutput.ToArray(), blockNumber);
+                    while ((blockNumber = _threadSync.GetBlockFromInputQueue(out Byte[] block)) >= 0)
+                    {
+                        using (MemoryStream memStreamInput = new MemoryStream(block))
+                        using (GZipStream gzStream = new GZipStream(memStreamInput,
+                                                        CompressionMode.Decompress, false))
+                        {
+                            gzStream.CopyTo(memStreamOutput);
+                        }
+                        if (!_threadSync.PutBlockToOutputQueue(memStreamOutput.ToArray(), blockNumber))
+                            break;
+
+                        memStreamOutput.SetLength(0);
+                    }
                 }
+                Console.WriteLine("Decompress thread ended");
+            }
+            catch(Exception ex)
+            {
+                _threadSync.SetEndOfFile();
+                _threadSync.SetAllBlocksProcessed();
+                InnerException = ex;
             }
         }
 
         internal void Finish()
         {
             _inputProduce.Join();
+            if (_fileHelper.InnerException != null)
+                throw _fileHelper.InnerException;
             _threadSync.SetAllBlocksProcessed();
             _outputConsume.Join();
+            if (_fileHelper.InnerException != null)
+                throw _fileHelper.InnerException;
         }
     }
 }
