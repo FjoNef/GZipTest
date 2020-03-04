@@ -18,7 +18,7 @@ namespace GZipTest
             _maxLength = maxLength;
         }
 
-        internal Int64 Dequeue(out Byte[] block)
+        internal bool Dequeue(out Byte[] block, out Int64 blockNumber)
         {
             try
             {
@@ -28,14 +28,16 @@ namespace GZipTest
                     if (isClosed)
                     {
                         block = new byte[0];
-                        return -1;
+                        blockNumber = -1;
+                        return false;
                     }
                     Monitor.Pulse(_queueLock);
                     Monitor.Wait(_queueLock);
                 }
                 KeyValuePair<Int64, Byte[]> kvPair = inputQueue.Dequeue();
                 block = kvPair.Value;
-                return kvPair.Key;
+                blockNumber = kvPair.Key;
+                return true;
             }
             finally
             {

@@ -69,10 +69,9 @@ namespace GZipTest
         {
             try
             {
-                Int64 blockNumber;
                 using (MemoryStream memStreamOutput = new MemoryStream())
                 {
-                    while ((blockNumber = InputQueue.Dequeue(out Byte[] block)) >= 0)
+                    while (InputQueue.Dequeue(out Byte[] block, out Int64 blockNumber))
                     {
                         using (MemoryStream memStreamInput = new MemoryStream(block))
                         using (GZipStream gzStream = new GZipStream(memStreamInput,

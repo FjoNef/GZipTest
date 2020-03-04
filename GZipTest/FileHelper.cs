@@ -20,10 +20,9 @@ namespace GZipTest
         {
             try
             {
-                Int64 blockNumber;
                 using (FileStream outputFileStream = new FileStream(((FileInfo)outputFile).FullName, FileMode.Create, FileAccess.Write))
                 {
-                    while ((blockNumber = _producer.OutputQueue.Dequeue(out Byte[] block)) >= 0)
+                    while (_producer.OutputQueue.Dequeue(out Byte[] block, out Int64 blockNumber))
                     {
                         outputFileStream.Position = blockNumber * GZipper.BUFF_SIZE;
                         outputFileStream.Write(block, 0, block.Length);
@@ -42,11 +41,10 @@ namespace GZipTest
         internal void WriteCompressToFile(Object outputFile)
         {
             try
-            {
-                Int64 blockNumber;
+            {                
                 using (FileStream outputFileStream = new FileStream(((FileInfo)outputFile).FullName, FileMode.Create, FileAccess.Write))
                 {
-                    while ((blockNumber = _producer.OutputQueue.Dequeue(out Byte[] block)) >= 0)
+                    while (_producer.OutputQueue.Dequeue(out Byte[] block, out Int64 blockNumber))
                     {
                         outputFileStream.Write(BitConverter.GetBytes(block.Length), 0, 4);
                         outputFileStream.Write(BitConverter.GetBytes(blockNumber), 0, 8);
@@ -70,22 +68,24 @@ namespace GZipTest
                 Int64 blockNumber = 0;
                 Int64 blocksCount = (Int64)Math.Ceiling((Double)((FileInfo)inputFile).Length / GZipper.BUFF_SIZE);
                 Int32 bytesReaded;
-                Byte[] block = new Byte[1024 * 1024];
+                Byte[] block = new Byte[GZipper.BUFF_SIZE];
                 using (FileStream inputFileStream = new FileStream(((FileInfo)inputFile).FullName, FileMode.Open, FileAccess.Read))
                 {
                     while (blockNumber < blocksCount)
                     {
-                        inputFileStream.Position = blockNumber * (1024 * 1024);
+                        inputFileStream.Position = blockNumber * GZipper.BUFF_SIZE;
                         bytesReaded = inputFileStream.Read(block, 0, block.Length);
                         if (bytesReaded < block.Length)
                         {
                             Byte[] finalBlock = new Byte[bytesReaded];
                             Array.Copy(block, finalBlock, finalBlock.Length);
-                            _producer.InputQueue.Enqueue(finalBlock, blockNumber);
+                            if (!_producer.InputQueue.Enqueue(finalBlock, blockNumber))
+                                break;
                         }
                         else
                         {
-                            _producer.InputQueue.Enqueue(block, blockNumber);
+                            if (!_producer.InputQueue.Enqueue(block, blockNumber))
+                                break;
                         }
                         Console.Write("r" + blockNumber);
                         blockNumber++;

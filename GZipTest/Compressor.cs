@@ -65,25 +65,38 @@ namespace GZipTest
                 throw InnerException;
         }
 
-        internal void Compress()
+        private void Compress()
         {
             try
             {
-                Int64 blockNumber;
-                using (MemoryStream memStream = new MemoryStream())
+                while (InputQueue.Dequeue(out Byte[] block, out Int64 blockNumber))
                 {
-                    while ((blockNumber = InputQueue.Dequeue(out Byte[] block)) >= 0)
+                    Byte[] buff;
+                    using (MemoryStream memStream = new MemoryStream())
                     {
                         using (GZipStream gzStream = new GZipStream(memStream,
                                                         CompressionMode.Compress, true))
                         {
                             gzStream.Write(block, 0, block.Length);
                         }
-                        if (!OutputQueue.Enqueue(memStream.ToArray(), blockNumber))
-                            break;
-                        memStream.SetLength(0);
+                        memStream.Position = 0;
+                        using (MemoryStream memStreamOutput = new MemoryStream())
+                        {
+                            using (GZipStream gzStream = new GZipStream(memStream,
+                                                            CompressionMode.Decompress, true))
+                            {
+                                gzStream.CopyTo(memStreamOutput);
+                            }
+
+                            buff = memStream.ToArray();
+                        }
                     }
+
+
+                    if (!OutputQueue.Enqueue(buff, blockNumber))
+                        break;
                 }
+
                 Console.WriteLine("Compress thread ended");
             }
             catch (Exception ex)
