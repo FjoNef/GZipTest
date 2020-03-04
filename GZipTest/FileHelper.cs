@@ -9,30 +9,24 @@ namespace GZipTest
 {
     internal class FileHelper
     {
-        private readonly GZipperThreadSyncronizer _threadSync;
-        private readonly FileInfo _inputFile;
-        private readonly FileInfo _outputFile;
+        private readonly IProcessor _producer;
 
-        internal Exception InnerException { get; set; }
-
-        internal FileHelper(GZipperThreadSyncronizer gZipperStreamSyncronizer, FileInfo inputFile, FileInfo outputFile)
+        internal FileHelper(IProcessor producer)
         {
-            _threadSync = gZipperStreamSyncronizer;
-            _inputFile = inputFile;
-            _outputFile = outputFile;
+            _producer = producer;
         }
 
-        internal void WriteDecompressToFile()
+        internal void WriteDecompressToFile(Object outputFile)
         {
             try
             {
                 Int64 blockNumber;
-                using (FileStream outputFile = new FileStream(_outputFile.FullName, FileMode.Create, FileAccess.Write))
+                using (FileStream outputFileStream = new FileStream(((FileInfo)outputFile).FullName, FileMode.Create, FileAccess.Write))
                 {
-                    while ((blockNumber = _threadSync.GetBlockFromOutputQueue(out Byte[] block)) >= 0)
+                    while ((blockNumber = _producer.OutputQueue.Dequeue(out Byte[] block)) >= 0)
                     {
-                        outputFile.Position = blockNumber * (1024 * 1024);
-                        outputFile.Write(block, 0, block.Length);
+                        outputFileStream.Position = blockNumber * GZipper.BUFF_SIZE;
+                        outputFileStream.Write(block, 0, block.Length);
                         Console.Write("w" + blockNumber);
                     }
                 }
@@ -40,24 +34,23 @@ namespace GZipTest
             }
             catch (Exception ex)
             {
-                _threadSync.SetEndOfFile();
-                _threadSync.SetAllBlocksProcessed();
-                InnerException = ex;
+                if (_producer != null)
+                    _producer.InnerException = ex;
             }
         }
 
-        internal void WriteCompressToFile()
+        internal void WriteCompressToFile(Object outputFile)
         {
             try
             {
                 Int64 blockNumber;
-                using (FileStream outputFile = new FileStream(_outputFile.FullName, FileMode.Create, FileAccess.Write))
+                using (FileStream outputFileStream = new FileStream(((FileInfo)outputFile).FullName, FileMode.Create, FileAccess.Write))
                 {
-                    while ((blockNumber = _threadSync.GetBlockFromOutputQueue(out Byte[] block)) >= 0)
+                    while ((blockNumber = _producer.OutputQueue.Dequeue(out Byte[] block)) >= 0)
                     {
-                        outputFile.Write(BitConverter.GetBytes(block.Length), 0, 4);
-                        outputFile.Write(BitConverter.GetBytes(blockNumber), 0, 8);
-                        outputFile.Write(block, 0, block.Length);
+                        outputFileStream.Write(BitConverter.GetBytes(block.Length), 0, 4);
+                        outputFileStream.Write(BitConverter.GetBytes(blockNumber), 0, 8);
+                        outputFileStream.Write(block, 0, block.Length);
                         Console.Write("w" + blockNumber);
                     }
                 }
@@ -65,63 +58,61 @@ namespace GZipTest
             }
             catch (Exception ex)
             {
-                _threadSync.SetEndOfFile();
-                _threadSync.SetAllBlocksProcessed();
-                InnerException = ex;
+                if (_producer != null)
+                    _producer.InnerException = ex;
             }
         }
 
-        internal void ReadDecompressFromFile()
+        internal void ReadDecompressFromFile(Object inputFile)
         {
             try
             {
                 Int64 blockNumber = 0;
-                Int64 blocksCount = (Int64)Math.Ceiling((Double)_inputFile.Length / (1024 * 1024));
+                Int64 blocksCount = (Int64)Math.Ceiling((Double)((FileInfo)inputFile).Length / GZipper.BUFF_SIZE);
                 Int32 bytesReaded;
                 Byte[] block = new Byte[1024 * 1024];
-                using (FileStream inputFile = new FileStream(_inputFile.FullName, FileMode.Open, FileAccess.Read))
+                using (FileStream inputFileStream = new FileStream(((FileInfo)inputFile).FullName, FileMode.Open, FileAccess.Read))
                 {
                     while (blockNumber < blocksCount)
                     {
-                        inputFile.Position = blockNumber * (1024 * 1024);
-                        bytesReaded = inputFile.Read(block, 0, block.Length);
+                        inputFileStream.Position = blockNumber * (1024 * 1024);
+                        bytesReaded = inputFileStream.Read(block, 0, block.Length);
                         if (bytesReaded < block.Length)
                         {
                             Byte[] finalBlock = new Byte[bytesReaded];
                             Array.Copy(block, finalBlock, finalBlock.Length);
-                            _threadSync.PutBlockToInputQueue(finalBlock, blockNumber);
+                            _producer.InputQueue.Enqueue(finalBlock, blockNumber);
                         }
                         else
                         {
-                            _threadSync.PutBlockToInputQueue(block, blockNumber);
+                            _producer.InputQueue.Enqueue(block, blockNumber);
                         }
                         Console.Write("r" + blockNumber);
                         blockNumber++;
                     }
-                    _threadSync.SetEndOfFile();
+                    _producer.InputQueue.Close();
                 }
                 Console.WriteLine("ReadDecompressFromFile thread ended");
             }
             catch (Exception ex)
             {
-                _threadSync.SetEndOfFile();
-                _threadSync.SetAllBlocksProcessed();
-                InnerException = ex;
+                if (_producer != null)
+                    _producer.InnerException = ex;
             }
         }
 
-        internal void ReadCompressFromFile()
+        internal void ReadCompressFromFile(Object inputFile)
         {
             try
             {
                 Int64 blockNumber;
                 Int32 bytesReaded, blockLength;
                 Byte[] block, header = new Byte[12];
-                using (FileStream inputFile = new FileStream(_inputFile.FullName, FileMode.Open, FileAccess.Read))
+                using (FileStream inputFileStream = new FileStream(((FileInfo)inputFile).FullName, FileMode.Open, FileAccess.Read))
                 {
-                    while (inputFile.Position < inputFile.Length)
+                    while (inputFileStream.Position < ((FileInfo)inputFile).Length)
                     {
-                        bytesReaded = inputFile.Read(header, 0, header.Length);
+                        bytesReaded = inputFileStream.Read(header, 0, header.Length);
                         if (bytesReaded != header.Length)
                             throw new EndOfStreamException("Unexpected end of file");
 
@@ -129,23 +120,22 @@ namespace GZipTest
                         blockNumber = BitConverter.ToInt64(header, 4);
                         block = new Byte[blockLength];
 
-                        bytesReaded = inputFile.Read(block, 0, block.Length);
+                        bytesReaded = inputFileStream.Read(block, 0, block.Length);
                         if (bytesReaded != blockLength)
                             throw new EndOfStreamException("Unexpected end of file");
 
-                        if (!_threadSync.PutBlockToInputQueue(block, blockNumber))
+                        if (!_producer.InputQueue.Enqueue(block, blockNumber))
                             break;
                         Console.Write("r" + blockNumber);
                     }
-                    _threadSync.SetEndOfFile();
+                    _producer.InputQueue.Close();
                 }
                 Console.WriteLine("ReadCompressFromFile thread ended");
             }
             catch (Exception ex)
             {
-                _threadSync.SetEndOfFile();
-                _threadSync.SetAllBlocksProcessed();
-                InnerException = ex;
+                if (_producer != null)
+                    _producer.InnerException = ex;
             }
         }
     }

@@ -9,27 +9,60 @@ using System.Threading.Tasks;
 
 namespace GZipTest
 {
-    class Compressor
+    class Compressor : IProcessor
     {
-        private readonly GZipperThreadSyncronizer _threadSync;
         private readonly FileHelper _fileHelper;
-        private Thread _inputProduce;
-        private Thread _outputConsume;
+        private readonly Int32 _threadsNumber;
+        private Exception _innerException;
 
-        internal Exception InnerException { get; set; }
+        public GZipperBlockingQueue InputQueue { get; }
+        public GZipperBlockingQueue OutputQueue { get; }
 
-        internal Compressor(FileInfo inputFile, FileInfo outputFile, Int32 queueMaxLength)
+        public Exception InnerException
         {
-            _threadSync = new GZipperThreadSyncronizer(queueMaxLength);
-            _fileHelper = new FileHelper(_threadSync, inputFile, outputFile);
-            _inputProduce = new Thread(_fileHelper.ReadDecompressFromFile);
-            _outputConsume = new Thread(_fileHelper.WriteCompressToFile);
+            get => _innerException;
+            set
+            {
+                Interlocked.Exchange(ref _innerException, value);
+                InputQueue.Close();
+                OutputQueue.Close();
+            }
         }
 
-        internal void Start()
+        public Compressor(Int32 threadsNumber)
         {
-            _inputProduce.Start();
-            _outputConsume.Start();
+            InputQueue = new GZipperBlockingQueue(threadsNumber);
+            OutputQueue = new GZipperBlockingQueue(threadsNumber);
+            _fileHelper = new FileHelper(this);
+            _threadsNumber = threadsNumber;
+        }
+
+        public void Start(FileInfo inputFile, FileInfo outputFile)
+        {
+            Thread[] threads = new Thread[_threadsNumber];
+
+            for (Int64 i = 0; i < _threadsNumber; i++)
+            {
+                threads[i] = new Thread(Compress);
+                threads[i].Start();
+            }
+            Thread inputProduce = new Thread(_fileHelper.ReadDecompressFromFile);
+            Thread outputConsume = new Thread(_fileHelper.WriteCompressToFile);
+            inputProduce.Start(inputFile);
+            outputConsume.Start(outputFile);
+
+            inputProduce.Join();
+
+            foreach (Thread thread in threads)
+            {
+                thread.Join();
+            }
+
+            OutputQueue.Close();
+            outputConsume.Join();
+
+            if (InnerException != null)
+                throw InnerException;
         }
 
         internal void Compress()
@@ -39,14 +72,14 @@ namespace GZipTest
                 Int64 blockNumber;
                 using (MemoryStream memStream = new MemoryStream())
                 {
-                    while ((blockNumber = _threadSync.GetBlockFromInputQueue(out Byte[] block)) >= 0)
+                    while ((blockNumber = InputQueue.Dequeue(out Byte[] block)) >= 0)
                     {
                         using (GZipStream gzStream = new GZipStream(memStream,
                                                         CompressionMode.Compress, true))
                         {
                             gzStream.Write(block, 0, block.Length);
                         }
-                        if (!_threadSync.PutBlockToOutputQueue(memStream.ToArray(), blockNumber))
+                        if (!OutputQueue.Enqueue(memStream.ToArray(), blockNumber))
                             break;
                         memStream.SetLength(0);
                     }
@@ -55,21 +88,8 @@ namespace GZipTest
             }
             catch (Exception ex)
             {
-                _threadSync.SetEndOfFile();
-                _threadSync.SetAllBlocksProcessed();
                 InnerException = ex;
             }
-        }
-
-        internal void Finish()
-        {
-            _inputProduce.Join();
-            if (_fileHelper.InnerException != null)
-                throw _fileHelper.InnerException;
-            _threadSync.SetAllBlocksProcessed();
-            _outputConsume.Join();
-            if (_fileHelper.InnerException != null)
-                throw _fileHelper.InnerException;
         }
     }
 }

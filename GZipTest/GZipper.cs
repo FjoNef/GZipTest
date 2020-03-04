@@ -7,8 +7,8 @@ namespace GZipTest
 {
     public static class GZipper
     {
-        private static readonly Int32 BUFF_SIZE = 1024 * 1024;
-        private static readonly Int32 PROC_COUNT = Environment.ProcessorCount;
+        public static readonly Int32 BUFF_SIZE = 1024 * 1024;
+        public static readonly Int32 PROC_COUNT = Environment.ProcessorCount;
 
         private static readonly byte[] _headerBytes = new byte[]
         {
@@ -34,48 +34,19 @@ namespace GZipTest
 
         public static void Compress(String inputFileName, String outputFileName = null)
         {
-            try
-            {
-                FileInfo inputFile = new FileInfo(inputFileName);
-                FileInfo outputFile = new FileInfo(outputFileName ?? (inputFileName + ".gz2"));                
+            FileInfo inputFile = new FileInfo(inputFileName);
+            FileInfo outputFile = new FileInfo(outputFileName ?? (inputFileName + ".gz2"));
 
-                Int64 blocksCount = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
+            Int64 blocksCount = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
-                if (blocksCount > 0)
-                {
-                    Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, blocksCount);
+            Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, blocksCount);
 
-                    Compressor compressor = new Compressor(inputFile, outputFile, threadsNumber);
+            Compressor compressor = new Compressor(threadsNumber);
 
-                    Thread[] threads = new Thread[threadsNumber];                    
+            compressor.Start(inputFile, outputFile);
 
-                    for (Int64 i = 0; i < threadsNumber; i++)
-                    {
-                        threads[i] = new Thread(compressor.Compress);
-                        threads[i].Start();
-                    }
-
-                    compressor.Start();
-
-                    foreach (Thread thread in threads)
-                    {
-                        thread.Join();
-                    }
-
-                    compressor.Finish();
-
-                    if (compressor.InnerException != null)
-                        throw compressor.InnerException;
-                }
-                else
-                {
-                    CompressEmptyFile();
-                }
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
+            if (compressor.InnerException != null)
+                throw compressor.InnerException;
         }
 
         private static void CompressEmptyFile()
@@ -86,44 +57,22 @@ namespace GZipTest
 
         public static void Decompress(String inputFileName, String outputFileName = null)
         {
-            try
-            {
-                FileInfo inputFile = new FileInfo(inputFileName);
-                FileInfo outputFile = new FileInfo(outputFileName ?? inputFile.FullName.Replace(".gz2", ""));
+            FileInfo inputFile = new FileInfo(inputFileName);
+            FileInfo outputFile = new FileInfo(outputFileName ?? inputFile.FullName.Replace(".gz2", ""));
 
-                if (inputFile.Extension != ".gz2")
-                    throw new FormatException("File is not a gzip archive");                
+            if (inputFile.Extension != ".gz2")
+                throw new FormatException("File is not a gzip archive");
 
-                Int64 blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
+            Int64 blocks = (Int64)Math.Ceiling((Double)inputFile.Length / BUFF_SIZE);
 
-                Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, blocks);
+            Int32 threadsNumber = (Int32)Math.Min(PROC_COUNT, blocks);
 
-                Decompressor decompressor = new Decompressor(inputFile, outputFile, threadsNumber);
+            Decompressor decompressor = new Decompressor(threadsNumber);
 
-                Thread[] threads = new Thread[threadsNumber];                
+            decompressor.Start(inputFile, outputFile);
 
-                for (Int64 i = 0; i < threadsNumber; i++)
-                {
-                    threads[i] = new Thread(decompressor.Decompress);
-                    threads[i].Start();
-                }
-
-                decompressor.Start();
-
-                foreach (Thread thread in threads)
-                {
-                    thread.Join();
-                }
-
-                decompressor.Finish();
-
-                if (decompressor.InnerException != null)
-                    throw decompressor.InnerException;
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
+            if (decompressor.InnerException != null)
+                throw decompressor.InnerException;
         }
     }
 }
