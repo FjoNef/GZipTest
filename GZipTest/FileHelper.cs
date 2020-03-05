@@ -22,7 +22,6 @@ namespace GZipTest
                     {
                         outputFileStream.Position = blockNumber * GZipper.BUFF_SIZE;
                         outputFileStream.Write(block, 0, block.Length);
-                        Console.Write('.');
                     }
                 }
             }
@@ -44,7 +43,7 @@ namespace GZipTest
                         outputFileStream.Write(BitConverter.GetBytes(block.Length), 0, 4);
                         outputFileStream.Write(BitConverter.GetBytes(blockNumber), 0, 8);
                         outputFileStream.Write(block, 0, block.Length);
-                        Console.Write('.');
+                        _producer?.Report(1);
                     }
                 }
             }
@@ -119,6 +118,7 @@ namespace GZipTest
 
                         if (!_producer.InputQueue.Enqueue(block, blockNumber))
                             break;
+                        _producer.Report((Int32)(((Double)inputFileStream.Position / ((FileInfo)inputFile).Length) * 100));
                     }
                     _producer.InputQueue.Close();
                 }

@@ -7,7 +7,6 @@ namespace GZipTest
 {
     internal class Decompressor : IProcessor
     {
-        private readonly FileHelper _fileHelper;
         private readonly Int32 _threadsNumber;
         private Exception _innerException;
 
@@ -29,7 +28,6 @@ namespace GZipTest
         {
             InputQueue = new GZipperBlockingQueue(threadsNumber);
             OutputQueue = new GZipperBlockingQueue(threadsNumber);
-            _fileHelper = new FileHelper(this);
             _threadsNumber = threadsNumber;
         }
 
@@ -42,8 +40,10 @@ namespace GZipTest
                 threads[i] = new Thread(Decompress);
                 threads[i].Start();
             }
-            Thread inputProduce = new Thread(_fileHelper.ReadCompressFromFile);
-            Thread outputConsume = new Thread(_fileHelper.WriteDecompressToFile);
+
+            FileHelper fileHelper = new FileHelper(this);
+            Thread inputProduce = new Thread(fileHelper.ReadCompressFromFile);
+            Thread outputConsume = new Thread(fileHelper.WriteDecompressToFile);
             inputProduce.Start(inputFile);
             outputConsume.Start(outputFile);
 
@@ -86,6 +86,12 @@ namespace GZipTest
             {
                 InnerException = ex;
             }
+        }
+
+        public void Report(Int32 value)
+        {
+            Console.CursorLeft -= 4;
+            Console.Write($"{value,3}%");
         }
     }
 }

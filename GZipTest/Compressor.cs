@@ -7,8 +7,9 @@ namespace GZipTest
 {
     internal class Compressor : IProcessor
     {
-        private readonly FileHelper _fileHelper;
         private readonly Int32 _threadsNumber;
+        private Int64 blocksCount;
+        private Int64 blocksProcessed;
         private Exception _innerException;
 
         public GZipperBlockingQueue InputQueue { get; }
@@ -29,12 +30,12 @@ namespace GZipTest
         {
             InputQueue = new GZipperBlockingQueue(threadsNumber);
             OutputQueue = new GZipperBlockingQueue(threadsNumber);
-            _fileHelper = new FileHelper(this);
             _threadsNumber = threadsNumber;
         }
 
         public void Start(FileInfo inputFile, FileInfo outputFile)
         {
+            blocksCount = (Int64)Math.Ceiling((Double)inputFile.Length / GZipper.BUFF_SIZE);
             Thread[] threads = new Thread[_threadsNumber];
 
             for (Int64 i = 0; i < _threadsNumber; i++)
@@ -42,8 +43,10 @@ namespace GZipTest
                 threads[i] = new Thread(Compress);
                 threads[i].Start();
             }
-            Thread inputProduce = new Thread(_fileHelper.ReadDecompressFromFile);
-            Thread outputConsume = new Thread(_fileHelper.WriteCompressToFile);
+
+            FileHelper fileHelper = new FileHelper(this);
+            Thread inputProduce = new Thread(fileHelper.ReadDecompressFromFile);
+            Thread outputConsume = new Thread(fileHelper.WriteCompressToFile);
             inputProduce.Start(inputFile);
             outputConsume.Start(outputFile);
 
@@ -85,6 +88,13 @@ namespace GZipTest
             {
                 InnerException = ex;
             }
+        }
+
+        public void Report(Int32 value)
+        {
+            Double percent = (Double)Interlocked.Increment(ref blocksProcessed) / (Double)blocksCount;
+            Console.CursorLeft -= 4;
+            Console.Write($"{percent,4:P0}");
         }
     }
 }

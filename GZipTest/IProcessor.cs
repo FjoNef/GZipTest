@@ -3,7 +3,7 @@ using System.IO;
 
 namespace GZipTest
 {
-    internal interface IProcessor
+    internal interface IProcessor : IProgress<Int32>
     {
         GZipperBlockingQueue InputQueue { get; }
         GZipperBlockingQueue OutputQueue { get; }
